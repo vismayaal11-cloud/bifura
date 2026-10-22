@@ -1,0 +1,31 @@
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bifura"
+version = "0.1.0"
+description = "Incident-informed predictive debugging for multi-step AI agents"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph",
+    "streamlit",
+    "networkx",
+    "plotly",
+    "pydantic>=2",
+    "python-dotenv",
+    "scikit-learn",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

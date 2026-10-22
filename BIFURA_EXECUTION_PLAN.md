@@ -101,17 +101,17 @@ The LLM proposes actions; the backend validates and authorizes them. Prediction 
 
 ## 3. Ownership of work
 
-### Member 1 — Agent, trace analysis, safety engine and repair
+### Member 1 — Agent, trace analysis, tool executor and repair
 
-Owns the local agent-under-test integration, run tracing, expected/actual comparison, first-deviation analysis, LangGraph investigation, restricted tools, safety policy enforcement, candidate patching, tests and replay.
+Owns the local agent-under-test integration, run tracing, expected/actual comparison, first-deviation analysis, LangGraph investigation, restricted tools, central tool executor (`src/bifura/tools/executor.py`) that enforces safety decisions, candidate patching, tests and replay. Member 1 calls the safety policy evaluator but does not duplicate or modify its implementation.
 
-### Member 2 — Dashboard and impact graph
+### Member 2 — Safety policy evaluator, dashboard and impact graph
 
-Owns Streamlit, run overview, timeline, event detail, prediction/incident panels, root-cause evidence, NetworkX/Plotly impact graph, patch diff and before/after verification views, plus the visible tool-execution/safety-decision panel.
+Owns the deterministic safety policy evaluator (`src/bifura/tools/policy.py`) returning `SafetyDecisionRecord`, Streamlit dashboard (`app.py` and `src/bifura/dashboard/`), run overview, timeline, event detail, prediction/incident panels, root-cause evidence, NetworkX/Plotly impact graph, patch diff and before/after verification views, plus mock run bundles in `data/fixtures/`. Member 2 does not modify the executor.
 
-### Member 3 — Incident data, training, prediction, evaluation and integration
+### Member 3 — Incident memory, prediction, evaluation and integration
 
-Owns incident schema, label taxonomy, dataset quality, feature extraction, incident retrieval, model training/evaluation, model/data versioning, the README and cross-module integration coordination.
+Owns incident schema, label taxonomy, dataset quality, feature extraction, incident storage, similarity retrieval, baseline model training/evaluation in `src/bifura/learning/`, model/data versioning, the README and cross-module integration coordination.
 
 ### Shared responsibility
 

@@ -1,4 +1,3 @@
-
 # Python
 __pycache__/
 *.py[cod]
@@ -14,14 +13,24 @@ venv/
 .env.*
 !.env.example
 
+# Databases and SQLite artifacts
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+
 # Private or locally generated data
 data/local/
 data/raw/
 data/private/
-data/*.sqlite
-data/*.db
+/data/sandbox/runtime/
 
 # Generated outputs and disposable worktrees
+/sandbox/
+/worktrees/
 results/generated/
 models/local/
 patches/worktrees/

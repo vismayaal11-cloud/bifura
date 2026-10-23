@@ -10,15 +10,18 @@ from bifura.schemas.models import (
     IncidentMatch,
     IncidentRecord,
     LabelStatus,
+    PredictionResult,
     RunRecord,
     TraceEvent,
 )
 from bifura.schemas.bundle import RunBundle
 from bifura.learning import (
     DuplicateIncidentError,
+    HEURISTIC_SCORE_MEANING,
     IncidentStore,
     calculate_incident_similarity,
     diagnose_run_bundle,
+    predict_failure,
     retrieve_similar_incidents,
 )
 
@@ -463,5 +466,119 @@ class TestRetrieval:
         )
         # Should have very low or 0 score
         assert score < 0.15
+
+
+class TestPrediction:
+    """Test suite for evidence-based prediction (Critical Step 4)."""
+
+    def test_predict_failure_with_strong_historical_evidence(self) -> None:
+        query_inc = _make_sample_incident(
+            incident_id="inc-q1",
+            category=FailureCategory.TOOL_INPUT_VALIDATION,
+            pattern="path_traversal_blocked",
+        )
+        cand1 = _make_sample_incident(
+            incident_id="inc-cand1",
+            category=FailureCategory.TOOL_INPUT_VALIDATION,
+            pattern="path_traversal_blocked",
+        )
+        cand2 = _make_sample_incident(
+            incident_id="inc-cand2",
+            category=FailureCategory.STATE_OR_DATAFLOW,
+            pattern="stale_state",
+        )
+
+        pred, matches = predict_failure(
+            query=query_inc,
+            historical_incidents=[cand1, cand2],
+            min_confidence=0.35,
+        )
+
+        assert pred.abstained is False
+        assert pred.abstention_reason is None
+        assert pred.predicted_categories == ["tool_input_validation"]
+        assert pred.score_meaning == "heuristic_support_score"
+        assert pred.prediction_mode == "structured_retrieval"
+        assert "inc-cand1" in pred.supporting_incident_ids
+        assert len(pred.candidates) >= 1
+        assert pred.candidates[0]["category"] == "tool_input_validation"
+        assert pred.candidates[0]["score_kind"] == "heuristic_support_score"
+        assert pred.scores["tool_input_validation"] > 0.50
+
+    def test_predict_failure_abstains_on_empty_history(self) -> None:
+        query_inc = _make_sample_incident()
+        pred, matches = predict_failure(
+            query=query_inc,
+            historical_incidents=[],
+        )
+
+        assert pred.abstained is True
+        assert "No historical incident records available" in (
+            pred.abstention_reason or ""
+        )
+        assert pred.predicted_categories == []
+        assert pred.supporting_incident_ids == []
+        assert pred.score_meaning == "heuristic_support_score"
+        assert pred.prediction_mode == "structured_retrieval"
+
+    def test_predict_failure_abstains_on_low_confidence(self) -> None:
+        query_inc = _make_sample_incident(
+            incident_id="inc-q",
+            category=FailureCategory.TOOL_INPUT_VALIDATION,
+            pattern="path_traversal_blocked",
+        )
+        # Category matches (gives ~0.35), but min_confidence requires 0.60
+        cand = IncidentRecord(
+            incident_id="inc-cat-only",
+            task_summary="Unrelated database backup",
+            observed_pattern="schema_syntax_error",
+            failure_category=FailureCategory.TOOL_INPUT_VALIDATION,
+            label_status=LabelStatus.SUSPECTED,
+        )
+
+        pred, matches = predict_failure(
+            query=query_inc,
+            historical_incidents=[cand],
+            min_confidence=0.60,  # Require at least 0.60 confidence
+        )
+
+        assert pred.abstained is True
+        assert "below minimum confidence threshold" in (
+            pred.abstention_reason or ""
+        )
+        assert pred.predicted_categories == []
+
+    def test_predict_failure_abstains_on_successful_bundle(self) -> None:
+        bundle = RunBundle(
+            scenario_id="success",
+            run=RunRecord(run_id="run-succ", status="succeeded"),
+            deviation=DeviationRecord(run_id="run-succ", found=False),
+        )
+        cand = _make_sample_incident()
+
+        pred, matches = predict_failure(
+            query=bundle,
+            historical_incidents=[cand],
+        )
+
+        assert pred.abstained is True
+        assert "No deviation observed" in (pred.abstention_reason or "")
+        assert pred.predicted_categories == []
+
+    def test_predict_failure_deterministic_injection(self) -> None:
+        fixed_dt = datetime(2026, 10, 23, 15, 30, 0, tzinfo=timezone.utc)
+        query_inc = _make_sample_incident()
+        cand = _make_sample_incident(incident_id="inc-cand")
+
+        pred, matches = predict_failure(
+            query=query_inc,
+            historical_incidents=[cand],
+            clock=lambda: fixed_dt,
+            id_generator=lambda: "pred-fixed-test-id",
+        )
+
+        assert pred.prediction_id == "pred-fixed-test-id"
+        assert pred.created_at == fixed_dt
+
 
 

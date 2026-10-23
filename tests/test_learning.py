@@ -13,6 +13,7 @@ from bifura.schemas.models import (
     PredictionResult,
     RunRecord,
     TraceEvent,
+    VerificationReport,
 )
 from bifura.schemas.bundle import RunBundle
 from bifura.learning import (
@@ -21,7 +22,10 @@ from bifura.learning import (
     IncidentStore,
     calculate_incident_similarity,
     diagnose_run_bundle,
+    enrich_run_bundle,
+    load_incident_catalog,
     predict_failure,
+    record_verification,
     retrieve_similar_incidents,
 )
 
@@ -579,6 +583,161 @@ class TestPrediction:
 
         assert pred.prediction_id == "pred-fixed-test-id"
         assert pred.created_at == fixed_dt
+
+
+class TestLearningLoop:
+    """Test suite for verified learning loop (Critical Step 5)."""
+
+    def test_enrich_run_bundle_with_null_learning_fields(
+        self, tmp_path: Path
+    ) -> None:
+        db_file = tmp_path / "learning_loop.db"
+        store = IncidentStore(db_path=db_file)
+
+        # Seed store with historical verified incident
+        hist_inc = _make_sample_incident(
+            incident_id="inc-hist-001",
+            category=FailureCategory.TOOL_INPUT_VALIDATION,
+            pattern="path_traversal_blocked",
+            label_status=LabelStatus.VERIFIED,
+            training_eligible=True,
+        )
+        store.add_incident(hist_inc)
+
+        # Bundle with null learning fields
+        bundle = RunBundle(
+            scenario_id="wrong_path",
+            run=RunRecord(run_id="run-new-001", status="blocked"),
+            deviation=DeviationRecord(
+                run_id="run-new-001",
+                found=True,
+                first_deviation_event_id="ev-001",
+                description="Path traversal attempt blocked by safety policy",
+            ),
+            incident_records=None,
+            incident_matches=None,
+            prediction=None,
+        )
+
+        enriched = enrich_run_bundle(
+            bundle=bundle,
+            store=store,
+            persist_incident=True,
+        )
+
+        assert enriched.incident_records is not None
+        assert len(enriched.incident_records) == 1
+        assert (
+            enriched.incident_records[0].failure_category
+            == FailureCategory.TOOL_INPUT_VALIDATION
+        )
+
+        assert enriched.incident_matches is not None
+        assert len(enriched.incident_matches) >= 1
+        assert enriched.incident_matches[0].incident_id == "inc-hist-001"
+
+        assert enriched.prediction is not None
+        assert enriched.prediction.abstained is False
+        assert enriched.prediction.predicted_categories == [
+            "tool_input_validation"
+        ]
+        assert enriched.prediction.score_meaning == "heuristic_support_score"
+
+        # Check it was persisted in store
+        persisted = store.get_incident(enriched.incident_records[0].incident_id)
+        assert persisted is not None
+
+    def test_record_verification_success_enables_training(
+        self, tmp_path: Path
+    ) -> None:
+        db_file = tmp_path / "verification.db"
+        store = IncidentStore(db_path=db_file)
+
+        incident = _make_sample_incident(
+            incident_id="inc-unverified-001",
+            label_status=LabelStatus.SUSPECTED,
+            training_eligible=False,
+        )
+        store.add_incident(incident)
+
+        report = VerificationReport(
+            report_id="rep-001",
+            verification_id="ver-001",
+            run_id="run-replay-001",
+            passed=True,
+            summary="Replay passed after path normalization patch.",
+            replay_status="passed",
+        )
+
+        updated = record_verification(
+            incident_id="inc-unverified-001",
+            verification=report,
+            store=store,
+            verified_root_cause="Path resolution logic bypassed sandbox containment.",
+            verified_correction="Strict path resolution inside sandbox_root.",
+        )
+
+        assert updated.label_status == LabelStatus.VERIFIED
+        assert updated.training_eligible is True
+        assert updated.replay_status == "verified_passed"
+        assert updated.verified_root_cause is not None
+        assert updated.verified_correction is not None
+
+        # Verify it can be retrieved as training_eligible
+        eligible = store.list_incidents(training_eligible_only=True)
+        assert len(eligible) == 1
+        assert eligible[0].incident_id == "inc-unverified-001"
+
+    def test_record_verification_failure_leaves_unverified(
+        self, tmp_path: Path
+    ) -> None:
+        db_file = tmp_path / "verification_fail.db"
+        store = IncidentStore(db_path=db_file)
+
+        incident = _make_sample_incident(
+            incident_id="inc-failed-replay",
+            label_status=LabelStatus.SUSPECTED,
+            training_eligible=False,
+        )
+        store.add_incident(incident)
+
+        failed_report = VerificationReport(
+            report_id="rep-fail-001",
+            passed=False,
+            summary="Candidate patch failed replay assertions.",
+        )
+
+        updated = record_verification(
+            incident_id="inc-failed-replay",
+            verification=failed_report,
+            store=store,
+        )
+
+        assert updated.label_status != LabelStatus.VERIFIED
+        assert updated.training_eligible is False
+        assert updated.verified_root_cause is None
+        assert updated.verified_correction is None
+
+    def test_load_incident_catalog_fixtures(self, tmp_path: Path) -> None:
+        db_file = tmp_path / "catalog.db"
+        store = IncidentStore(db_path=db_file)
+
+        records = load_incident_catalog(
+            catalog_path="data/incidents/catalog.json",
+            store=store,
+        )
+
+        assert len(records) >= 3
+        assert store.count_incidents() >= 3
+
+        # Confirm provenance is synthetic_fixture
+        for rec in records:
+            assert rec.provenance == "synthetic_fixture"
+            assert rec.data_origin == "controlled_fixture"
+            assert (
+                rec.incident_id.startswith("syn-inc-")
+            )
+
 
 
 

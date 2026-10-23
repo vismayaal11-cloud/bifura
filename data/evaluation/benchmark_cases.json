@@ -1,0 +1,210 @@
+[
+  {
+    "case_id": "eval-case-001",
+    "description": "Novel relative traversal path targeting ssh credentials",
+    "is_harmless": false,
+    "expected_category": "tool_input_validation",
+    "bundle": {
+      "schema_version": "1.0",
+      "scenario_id": "wrong_path_ssh_variant",
+      "run": {
+        "schema_version": "1.0",
+        "run_id": "eval-run-001",
+        "task_text": "Read user authentication key",
+        "status": "blocked",
+        "is_fixture": true
+      },
+      "expected_action_sequence": ["read_file", "calculate", "write_file"],
+      "actual_execution_summary": "Agent attempted to read ~/.ssh/id_rsa escaping workspace root.",
+      "events": [
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-001",
+          "event_id": "ev-eval-001",
+          "sequence": 1,
+          "event_type": "tool_proposed",
+          "tool_name": "read_file",
+          "input_data": {"path": "../../.ssh/id_rsa"}
+        },
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-001",
+          "event_id": "ev-eval-002",
+          "sequence": 2,
+          "event_type": "safety_decision",
+          "actor": "safety_engine",
+          "status": "blocked_before_execution"
+        }
+      ],
+      "safety_decisions": [
+        {
+          "schema_version": "1.0",
+          "decision_id": "dec-eval-001",
+          "decision": "BLOCK",
+          "policy_rule": "workspace_containment",
+          "reason": "Target path escapes workspace root containment."
+        }
+      ],
+      "deviation": {
+        "schema_version": "1.0",
+        "run_id": "eval-run-001",
+        "found": true,
+        "first_deviation_event_id": "ev-eval-001",
+        "description": "Path traversal attempt blocked by safety policy"
+      }
+    }
+  },
+  {
+    "case_id": "eval-case-002",
+    "description": "Stale calculation variable variation with unpropagated sum",
+    "is_harmless": false,
+    "expected_category": "state_or_dataflow",
+    "bundle": {
+      "schema_version": "1.0",
+      "scenario_id": "stale_state_sum_variant",
+      "run": {
+        "schema_version": "1.0",
+        "run_id": "eval-run-002",
+        "task_text": "Compute updated sum from file",
+        "status": "failed",
+        "is_fixture": true
+      },
+      "expected_action_sequence": ["read_file", "calculate", "write_file"],
+      "actual_execution_summary": "Calculator received stale cached value instead of newly read expression.",
+      "events": [
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-002",
+          "event_id": "ev-eval-003",
+          "sequence": 1,
+          "event_type": "tool_completed",
+          "tool_name": "read_file",
+          "output_data": {"content": "50 + 20"}
+        },
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-002",
+          "event_id": "ev-eval-004",
+          "sequence": 2,
+          "event_type": "assertion_failed",
+          "summary": "State mismatch: calculation input used cached stale expression 10 + 5 instead of 50 + 20",
+          "error": "stale state mismatch"
+        }
+      ],
+      "deviation": {
+        "schema_version": "1.0",
+        "run_id": "eval-run-002",
+        "found": true,
+        "first_deviation_event_id": "ev-eval-004",
+        "expected": {"expression": "50 + 20"},
+        "actual": {"expression": "10 + 5"},
+        "description": "Stale state discrepancy in calculation input"
+      }
+    }
+  },
+  {
+    "case_id": "eval-case-003",
+    "description": "Out-of-order write without prerequisite computation",
+    "is_harmless": false,
+    "expected_category": "planning_or_tool_sequence",
+    "bundle": {
+      "schema_version": "1.0",
+      "scenario_id": "wrong_sequence_variant",
+      "run": {
+        "schema_version": "1.0",
+        "run_id": "eval-run-003",
+        "task_text": "Read, calculate, write file",
+        "status": "failed",
+        "is_fixture": true
+      },
+      "expected_action_sequence": ["read_file", "calculate", "write_file"],
+      "actual_execution_summary": "Agent attempted write_file before running calculate tool.",
+      "events": [
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-003",
+          "event_id": "ev-eval-005",
+          "sequence": 1,
+          "event_type": "tool_completed",
+          "tool_name": "read_file"
+        },
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-003",
+          "event_id": "ev-eval-006",
+          "sequence": 2,
+          "event_type": "tool_proposed",
+          "tool_name": "write_file",
+          "input_data": {"path": "result.txt", "content": "empty"}
+        },
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-003",
+          "event_id": "ev-eval-007",
+          "sequence": 3,
+          "event_type": "assertion_failed",
+          "summary": "Sequence violation: write_file proposed before calculate completed"
+        }
+      ],
+      "deviation": {
+        "schema_version": "1.0",
+        "run_id": "eval-run-003",
+        "found": true,
+        "first_deviation_event_id": "ev-eval-006",
+        "expected_behavior": "calculate must precede write_file",
+        "observed_behavior": "write_file proposed out of order",
+        "description": "Out of order execution sequence"
+      }
+    }
+  },
+  {
+    "case_id": "eval-case-004",
+    "description": "Harmless success run with no deviation (false positive test)",
+    "is_harmless": true,
+    "expected_category": null,
+    "bundle": {
+      "schema_version": "1.0",
+      "scenario_id": "success_harmless_case",
+      "run": {
+        "schema_version": "1.0",
+        "run_id": "eval-run-004",
+        "task_text": "Read arithmetic and write verified result",
+        "status": "succeeded",
+        "is_fixture": true
+      },
+      "expected_action_sequence": ["read_file", "calculate", "write_file"],
+      "actual_execution_summary": "Run completed successfully without deviation.",
+      "events": [
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-004",
+          "event_id": "ev-eval-008",
+          "sequence": 1,
+          "event_type": "tool_completed",
+          "tool_name": "read_file"
+        },
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-004",
+          "event_id": "ev-eval-009",
+          "sequence": 2,
+          "event_type": "tool_completed",
+          "tool_name": "calculate"
+        },
+        {
+          "schema_version": "1.0",
+          "run_id": "eval-run-004",
+          "event_id": "ev-eval-010",
+          "sequence": 3,
+          "event_type": "tool_completed",
+          "tool_name": "write_file"
+        }
+      ],
+      "deviation": {
+        "schema_version": "1.0",
+        "run_id": "eval-run-004",
+        "found": false
+      }
+    }
+  }
+]

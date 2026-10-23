@@ -25,11 +25,17 @@ class IncidentStore:
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self.db_path = str(db_path)
-        if self.db_path != ":memory:":
+        self._mem_conn: sqlite3.Connection | None = None
+        if self.db_path == ":memory:":
+            self._mem_conn = sqlite3.connect(":memory:")
+            self._mem_conn.row_factory = sqlite3.Row
+        else:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
+        if self._mem_conn is not None:
+            return self._mem_conn
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn

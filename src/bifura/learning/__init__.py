@@ -1,6 +1,7 @@
 """Bifura learning, incident memory, retrieval, prediction and evaluation package."""
 
 from bifura.learning.diagnosis import diagnose_run_bundle
+from bifura.learning.evaluation import evaluate_retrieval_classifier
 from bifura.learning.loop import (
     enrich_run_bundle,
     load_incident_catalog,
@@ -34,6 +35,7 @@ __all__ = [
     "calculate_incident_similarity",
     "diagnose_run_bundle",
     "enrich_run_bundle",
+    "evaluate_retrieval_classifier",
     "load_incident_catalog",
     "predict_failure",
     "record_verification",

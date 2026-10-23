@@ -23,6 +23,7 @@ from bifura.learning import (
     calculate_incident_similarity,
     diagnose_run_bundle,
     enrich_run_bundle,
+    evaluate_retrieval_classifier,
     load_incident_catalog,
     predict_failure,
     record_verification,
@@ -739,5 +740,33 @@ class TestLearningLoop:
             )
 
 
+class TestEvaluation:
+    """Test suite for evaluation dataset and metrics (Optional Step 6)."""
 
+    def test_evaluate_retrieval_classifier_metrics(self) -> None:
+        report = evaluate_retrieval_classifier(
+            training_data_path="data/datasets/training_incidents.json",
+            benchmark_cases_path="data/evaluation/benchmark_cases.json",
+            min_confidence=0.35,
+        )
+
+        assert report["is_synthetic"] is True
+        assert "NOTICE" in report["disclaimer"]
+        assert report["total_cases"] == 4
+        assert report["failure_cases"] == 3
+        assert report["harmless_cases"] == 1
+
+        # Harmless case must not produce a false positive failure prediction
+        assert report["false_positive_count"] == 0
+        assert report["false_positive_rate"] == 0.0
+
+        # All 3 failure cases should be correctly predicted by structured similarity
+        assert report["accuracy"] == 1.0
+        assert report["macro_f1"] == 1.0
+
+        # Check per-category breakdowns
+        per_cat = report["per_category_metrics"]
+        assert "tool_input_validation" in per_cat
+        assert "state_or_dataflow" in per_cat
+        assert "planning_or_tool_sequence" in per_cat
 

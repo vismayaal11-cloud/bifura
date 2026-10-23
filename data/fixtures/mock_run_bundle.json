@@ -220,6 +220,7 @@
       "retrieved_at": "2026-10-22T18:16:05.886703Z"
     }
   ],
+  "incident_records": null,
   "impact_graph": {
     "schema_version": "1.0",
     "run_id": "run-mock-001",

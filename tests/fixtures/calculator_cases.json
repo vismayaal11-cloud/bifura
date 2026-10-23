@@ -1,0 +1,229 @@
+{
+  "schema_version": "1.0",
+  "description": "Shared read-only test cases for Bifura calculator evaluation and safety policy validation.",
+  "limits": {
+    "max_expression_length": 200,
+    "allowed_operators": [
+      "+",
+      "-",
+      "*",
+      "/",
+      "//",
+      "%",
+      "**"
+    ],
+    "max_numeric_literal": 1000000000000.0,
+    "max_exponent_magnitude": 100,
+    "max_result_magnitude": 1000000000000.0
+  },
+  "cases": [
+    {
+      "id": "valid_simple_add",
+      "expression": "15 + 4",
+      "category": "valid",
+      "expected_valid": true,
+      "expected_result": 19.0,
+      "description": "Standard binary addition"
+    },
+    {
+      "id": "valid_scenario_multiplication",
+      "expression": "15 * 4",
+      "category": "valid",
+      "expected_valid": true,
+      "expected_result": 60.0,
+      "description": "Multiplication matching scenario 1 fixture"
+    },
+    {
+      "id": "valid_subtraction_and_division",
+      "expression": "(100 - 25) / 5",
+      "category": "valid",
+      "expected_valid": true,
+      "expected_result": 15.0,
+      "description": "Parenthesized subtraction divided by integer"
+    },
+    {
+      "id": "valid_floor_division_and_modulo",
+      "expression": "17 // 5 + 17 % 5",
+      "category": "valid",
+      "expected_valid": true,
+      "expected_result": 5.0,
+      "description": "Floor division and modulo combination"
+    },
+    {
+      "id": "valid_unary_minus",
+      "expression": "-(10 + 5) * 2",
+      "category": "valid",
+      "expected_valid": true,
+      "expected_result": -30.0,
+      "description": "Unary minus negation with parentheses"
+    },
+    {
+      "id": "valid_power_bounded",
+      "expression": "2 ** 10",
+      "category": "valid",
+      "expected_valid": true,
+      "expected_result": 1024.0,
+      "description": "Exponentiation within allowed bounds"
+    },
+    {
+      "id": "valid_subexpression_exponent",
+      "expression": "2 ** (3 + 2)",
+      "category": "valid",
+      "expected_valid": true,
+      "expected_result": 32.0,
+      "description": "Subexpression evaluated exponent within bounds"
+    },
+    {
+      "id": "valid_max_literal_bound",
+      "expression": "1000000000000 - 1",
+      "category": "valid",
+      "expected_valid": true,
+      "expected_result": 999999999999.0,
+      "description": "Literal exactly at the 1e12 maximum boundary"
+    },
+    {
+      "id": "invalid_syntax_malformed",
+      "expression": "2 +* 3",
+      "category": "invalid_syntax",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Malformed consecutive operator syntax"
+    },
+    {
+      "id": "invalid_syntax_incomplete",
+      "expression": "15 +",
+      "category": "invalid_syntax",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Incomplete expression trailing operator"
+    },
+    {
+      "id": "invalid_syntax_empty",
+      "expression": "",
+      "category": "invalid_syntax",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Empty expression string"
+    },
+    {
+      "id": "invalid_syntax_statement_injection",
+      "expression": "import os; os.system('ls')",
+      "category": "invalid_syntax",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Statement or function call injection prohibited"
+    },
+    {
+      "id": "invalid_boolean_literal_true",
+      "expression": "True + 1",
+      "category": "booleans",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Boolean literal True rejected as numeric operand"
+    },
+    {
+      "id": "invalid_boolean_literal_false",
+      "expression": "False * 10",
+      "category": "booleans",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Boolean literal False rejected as numeric operand"
+    },
+    {
+      "id": "invalid_complex_literal",
+      "expression": "1 + 2j",
+      "category": "complex_numbers",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Complex number rejected"
+    },
+    {
+      "id": "invalid_complex_operation",
+      "expression": "3j * 4",
+      "category": "complex_numbers",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Complex imaginary operand rejected"
+    },
+    {
+      "id": "invalid_division_by_zero",
+      "expression": "10 / 0",
+      "category": "division_by_zero",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Division by zero"
+    },
+    {
+      "id": "invalid_floor_division_by_zero",
+      "expression": "10 // 0",
+      "category": "division_by_zero",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Floor division by zero"
+    },
+    {
+      "id": "invalid_modulo_by_zero",
+      "expression": "10 % 0",
+      "category": "division_by_zero",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Modulo by zero"
+    },
+    {
+      "id": "invalid_oversized_literal",
+      "expression": "1000000000001 + 1",
+      "category": "oversized_literals",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Numeric literal exceeding 1e12 maximum"
+    },
+    {
+      "id": "invalid_excessive_exponent_literal",
+      "expression": "2 ** 101",
+      "category": "excessive_exponents",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Exponent magnitude greater than 100"
+    },
+    {
+      "id": "invalid_excessive_negative_exponent",
+      "expression": "2 ** -101",
+      "category": "excessive_exponents",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Negative exponent magnitude greater than 100"
+    },
+    {
+      "id": "invalid_excessive_computed_exponent",
+      "expression": "2 ** (60 + 50)",
+      "category": "excessive_exponents",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Computed subexpression exponent magnitude (110) exceeds 100"
+    },
+    {
+      "id": "invalid_nested_exponentiation_chain",
+      "expression": "9 ** 9 ** 9",
+      "category": "excessive_exponents",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Nested exponentiation chain rejected during AST check before computation"
+    },
+    {
+      "id": "invalid_excessive_result",
+      "expression": "1000000000000 * 2",
+      "category": "excessive_results",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Calculation result exceeding 1e12 maximum"
+    },
+    {
+      "id": "invalid_oversized_length",
+      "expression": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1",
+      "category": "expression_length",
+      "expected_valid": false,
+      "expected_result": null,
+      "description": "Expression length exceeding 200 character limit"
+    }
+  ]
+}

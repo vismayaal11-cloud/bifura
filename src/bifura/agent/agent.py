@@ -47,15 +47,20 @@ def default_policy_evaluator(
 ) -> SafetyDecisionRecord:
     """Default deterministic safety policy evaluator conforming to contract rules."""
     allowed_tools = context.get("allowed_tools", ["read_file", "calculate", "write_file"])
+    dec_id = f"dec-{proposal.proposal_id}"
+    now_fn = context.get("_clock", utc_now)
+    now = now_fn()
     if proposal.tool_name not in allowed_tools:
         return SafetyDecisionRecord(
-            decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+            decision_id=dec_id,
             decision=SafetyDecisionType.BLOCK,
             proposal_id=proposal.proposal_id,
             run_id=proposal.run_id,
             policy_rule="tool_allowlist_guard",
             reason=f"Tool '{proposal.tool_name}' is not in allowed_tools list.",
             execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+            decided_at=now,
+            created_at=now,
         )
 
     # 1. read_file checks
@@ -63,26 +68,30 @@ def default_policy_evaluator(
         path_arg = proposal.arguments.get("path", "")
         if not path_arg or not isinstance(path_arg, str):
             return SafetyDecisionRecord(
-                decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+                decision_id=dec_id,
                 decision=SafetyDecisionType.BLOCK,
                 proposal_id=proposal.proposal_id,
                 run_id=proposal.run_id,
                 policy_rule="argument_validation",
                 reason="Path argument must be a non-empty string.",
                 execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+                decided_at=now,
+                created_at=now,
             )
 
         # Check for path traversal or escaping workspace_root
         workspace_root = context.get("workspace_root")
         if not workspace_root:
             return SafetyDecisionRecord(
-                decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+                decision_id=dec_id,
                 decision=SafetyDecisionType.BLOCK,
                 proposal_id=proposal.proposal_id,
                 run_id=proposal.run_id,
                 policy_rule="workspace_root_guard",
                 reason="Missing workspace_root in context.",
                 execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+                decided_at=now,
+                created_at=now,
             )
 
         resolved_root = Path(workspace_root).resolve()
@@ -91,34 +100,40 @@ def default_policy_evaluator(
             target.relative_to(resolved_root)
         except ValueError:
             return SafetyDecisionRecord(
-                decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+                decision_id=dec_id,
                 decision=SafetyDecisionType.BLOCK,
                 proposal_id=proposal.proposal_id,
                 run_id=proposal.run_id,
                 policy_rule="path_containment_policy",
                 reason=f"Relative path traversal escaping workspace root: '{path_arg}'.",
                 execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+                decided_at=now,
+                created_at=now,
             )
 
         if ".." in Path(path_arg).parts:
             return SafetyDecisionRecord(
-                decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+                decision_id=dec_id,
                 decision=SafetyDecisionType.BLOCK,
                 proposal_id=proposal.proposal_id,
                 run_id=proposal.run_id,
                 policy_rule="path_traversal_policy",
                 reason="Path traversal component ('..') detected.",
                 execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+                decided_at=now,
+                created_at=now,
             )
 
         return SafetyDecisionRecord(
-            decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+            decision_id=dec_id,
             decision=SafetyDecisionType.ALLOW,
             proposal_id=proposal.proposal_id,
             run_id=proposal.run_id,
             policy_rule="read_file_allow",
             reason="Read target resolves safely within workspace_root.",
             execution_status=ExecutionStatus.NOT_STARTED,
+            decided_at=now,
+            created_at=now,
         )
 
     # 2. write_file checks
@@ -126,25 +141,29 @@ def default_policy_evaluator(
         permissions = context.get("permissions", {})
         if not permissions.get("write_sandbox", False):
             return SafetyDecisionRecord(
-                decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+                decision_id=dec_id,
                 decision=SafetyDecisionType.BLOCK,
                 proposal_id=proposal.proposal_id,
                 run_id=proposal.run_id,
                 policy_rule="sandbox_permission_guard",
                 reason="Write operation prohibited: permissions['write_sandbox'] is False.",
                 execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+                decided_at=now,
+                created_at=now,
             )
 
         sandbox_root = context.get("sandbox_root")
         if not sandbox_root:
             return SafetyDecisionRecord(
-                decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+                decision_id=dec_id,
                 decision=SafetyDecisionType.BLOCK,
                 proposal_id=proposal.proposal_id,
                 run_id=proposal.run_id,
                 policy_rule="sandbox_root_guard",
                 reason="Missing sandbox_root in context.",
                 execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+                decided_at=now,
+                created_at=now,
             )
 
         path_arg = proposal.arguments.get("path", "")
@@ -154,23 +173,27 @@ def default_policy_evaluator(
             target.relative_to(resolved_sandbox)
         except ValueError:
             return SafetyDecisionRecord(
-                decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+                decision_id=dec_id,
                 decision=SafetyDecisionType.BLOCK,
                 proposal_id=proposal.proposal_id,
                 run_id=proposal.run_id,
                 policy_rule="sandbox_containment_policy",
                 reason=f"Write target escapes sandbox_root: '{path_arg}'.",
                 execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+                decided_at=now,
+                created_at=now,
             )
 
         return SafetyDecisionRecord(
-            decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+            decision_id=dec_id,
             decision=SafetyDecisionType.ALLOW,
             proposal_id=proposal.proposal_id,
             run_id=proposal.run_id,
             policy_rule="write_file_allow",
             reason="Write target resolves safely inside sandbox_root with write_sandbox=True.",
             execution_status=ExecutionStatus.NOT_STARTED,
+            decided_at=now,
+            created_at=now,
         )
 
     # 3. calculate checks
@@ -178,33 +201,39 @@ def default_policy_evaluator(
         expr = proposal.arguments.get("expression", "")
         if not isinstance(expr, str) or not expr.strip() or len(expr) > MAX_EXPRESSION_LENGTH:
             return SafetyDecisionRecord(
-                decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+                decision_id=dec_id,
                 decision=SafetyDecisionType.BLOCK,
                 proposal_id=proposal.proposal_id,
                 run_id=proposal.run_id,
                 policy_rule="calculator_limits",
                 reason="Expression is invalid or exceeds character limit.",
                 execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+                decided_at=now,
+                created_at=now,
             )
 
         return SafetyDecisionRecord(
-            decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+            decision_id=dec_id,
             decision=SafetyDecisionType.ALLOW,
             proposal_id=proposal.proposal_id,
             run_id=proposal.run_id,
             policy_rule="calculate_allow",
             reason="Arithmetic expression within policy limits.",
             execution_status=ExecutionStatus.NOT_STARTED,
+            decided_at=now,
+            created_at=now,
         )
 
     return SafetyDecisionRecord(
-        decision_id=f"dec-{uuid.uuid4().hex[:8]}",
+        decision_id=dec_id,
         decision=SafetyDecisionType.BLOCK,
         proposal_id=proposal.proposal_id,
         run_id=proposal.run_id,
         policy_rule="default_deny",
         reason=f"No policy rule allows tool '{proposal.tool_name}'.",
         execution_status=ExecutionStatus.BLOCKED_BEFORE_EXECUTION,
+        decided_at=now,
+        created_at=now,
     )
 
 

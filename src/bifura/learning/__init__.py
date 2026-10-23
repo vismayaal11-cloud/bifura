@@ -1,5 +1,6 @@
 """Bifura learning, incident memory, retrieval, prediction and evaluation package."""
 
+from bifura.learning.diagnosis import diagnose_run_bundle
 from bifura.learning.storage import (
     DuplicateIncidentError,
     IncidentStore,
@@ -8,4 +9,5 @@ from bifura.learning.storage import (
 __all__ = [
     "DuplicateIncidentError",
     "IncidentStore",
+    "diagnose_run_bundle",
 ]

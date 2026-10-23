@@ -5,13 +5,18 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from bifura.schemas.models import (
+    DeviationRecord,
     FailureCategory,
     IncidentRecord,
     LabelStatus,
+    RunRecord,
+    TraceEvent,
 )
-from bifura.learning.storage import (
+from bifura.schemas.bundle import RunBundle
+from bifura.learning import (
     DuplicateIncidentError,
     IncidentStore,
+    diagnose_run_bundle,
 )
 
 
@@ -179,3 +184,167 @@ class TestIncidentStore:
         assert store2.get_incident("inc-db1") is None
         assert store1.count_incidents() == 1
         assert store2.count_incidents() == 0
+
+
+class TestDiagnosis:
+    """Test suite for bundle diagnosis (Critical Step 2)."""
+
+    def test_diagnose_success_scenario_returns_none(self) -> None:
+        bundle = RunBundle(
+            scenario_id="success",
+            run=RunRecord(run_id="run-success-001", status="succeeded"),
+            deviation=DeviationRecord(run_id="run-success-001", found=False),
+        )
+        incident = diagnose_run_bundle(bundle)
+        assert incident is None
+
+    def test_diagnose_wrong_path_from_fixture_file(self) -> None:
+        import json
+        with open("data/fixtures/mock_run_bundle.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        bundle = RunBundle.model_validate(data)
+
+        incident = diagnose_run_bundle(bundle)
+        assert incident is not None
+        assert incident.failure_category == FailureCategory.TOOL_INPUT_VALIDATION
+        assert incident.observed_pattern == "path_traversal_blocked"
+        assert incident.label_status == LabelStatus.SUSPECTED
+        assert incident.training_eligible is False
+        assert "dec-mock-001" in incident.evidence_refs
+        assert "ev-001" in incident.evidence_refs
+
+    def test_diagnose_stale_state_scenario(self) -> None:
+        bundle = RunBundle(
+            scenario_id="stale_state",
+            run=RunRecord(
+                run_id="run-stale-001",
+                task_text="Perform sequential computation",
+                status="failed",
+            ),
+            expected_action_sequence=["read_file", "calculate", "write_file"],
+            actual_execution_summary="Agent calculated with stale cached input 2 + 3 instead of 15 * 4",
+            events=[
+                TraceEvent(
+                    run_id="run-stale-001",
+                    event_id="ev-01",
+                    sequence=1,
+                    event_type="tool_completed",
+                    tool_name="read_file",
+                    output_data={"content": "15 * 4"},
+                ),
+                TraceEvent(
+                    run_id="run-stale-001",
+                    event_id="ev-02",
+                    sequence=2,
+                    event_type="assertion_failed",
+                    summary="Discrepancy detected: stale input expression 2 + 3 does not match file content 15 * 4",
+                    error="stale state mismatch",
+                ),
+            ],
+            deviation=DeviationRecord(
+                run_id="run-stale-001",
+                found=True,
+                first_deviation_event_id="ev-02",
+                expected={"expression": "15 * 4"},
+                actual={"expression": "2 + 3"},
+                expected_behavior="Calculator receives expression from freshly read file",
+                observed_behavior="Calculator received stale cached value 2 + 3",
+                description="Stale state discrepancy in calculation input",
+            ),
+        )
+
+        incident = diagnose_run_bundle(bundle)
+        assert incident is not None
+        assert incident.failure_category == FailureCategory.STATE_OR_DATAFLOW
+        assert incident.observed_pattern == "stale_state_or_dataflow_mismatch"
+        assert "ev-02" in incident.evidence_refs
+
+    def test_diagnose_wrong_sequence_scenario(self) -> None:
+        bundle = RunBundle(
+            scenario_id="wrong_sequence",
+            run=RunRecord(
+                run_id="run-seq-001",
+                task_text="Read, calculate and write",
+                status="failed",
+            ),
+            expected_action_sequence=["read_file", "calculate", "write_file"],
+            actual_execution_summary="Agent proposed write_file before calculation completed",
+            events=[
+                TraceEvent(
+                    run_id="run-seq-001",
+                    event_id="ev-s01",
+                    sequence=1,
+                    event_type="tool_completed",
+                    tool_name="read_file",
+                ),
+                TraceEvent(
+                    run_id="run-seq-001",
+                    event_id="ev-s02",
+                    sequence=2,
+                    event_type="tool_proposed",
+                    tool_name="write_file",
+                    input_data={"path": "result.txt", "content": "uncomputed"},
+                ),
+                TraceEvent(
+                    run_id="run-seq-001",
+                    event_id="ev-s03",
+                    sequence=3,
+                    event_type="assertion_failed",
+                    summary="Sequence precondition violated: write_file attempted before calculate",
+                ),
+            ],
+            deviation=DeviationRecord(
+                run_id="run-seq-001",
+                found=True,
+                first_deviation_event_id="ev-s02",
+                expected_behavior="calculate completes before write_file",
+                observed_behavior="write_file proposed prematurely",
+                description="Out of order execution sequence",
+            ),
+        )
+
+        incident = diagnose_run_bundle(bundle)
+        assert incident is not None
+        assert incident.failure_category == FailureCategory.PLANNING_OR_TOOL_SEQUENCE
+        assert incident.observed_pattern == "out_of_order_tool_execution"
+
+    def test_diagnose_unknown_insufficient_evidence(self) -> None:
+        bundle = RunBundle(
+            scenario_id="ambiguous_scenario",
+            run=RunRecord(run_id="run-amb-001", status="failed"),
+            deviation=DeviationRecord(
+                run_id="run-amb-001",
+                found=True,
+                description="Something anomalous happened without clear log trace",
+            ),
+        )
+
+        incident = diagnose_run_bundle(bundle)
+        assert incident is not None
+        assert (
+            incident.failure_category
+            == FailureCategory.UNKNOWN_INSUFFICIENT_EVIDENCE
+        )
+        assert incident.observed_pattern == "unclassified_deviation"
+
+    def test_deterministic_id_and_clock_injection(self) -> None:
+        fixed_dt = datetime(2026, 10, 23, 12, 0, 0, tzinfo=timezone.utc)
+        bundle = RunBundle(
+            scenario_id="wrong_path",
+            run=RunRecord(run_id="run-inj-001", status="blocked"),
+            deviation=DeviationRecord(
+                run_id="run-inj-001",
+                found=True,
+                description="Path traversal attempt blocked",
+            ),
+        )
+
+        incident = diagnose_run_bundle(
+            bundle,
+            id_generator=lambda: "inc-custom-fixed-id",
+            clock=lambda: fixed_dt,
+        )
+        assert incident is not None
+        assert incident.incident_id == "inc-custom-fixed-id"
+        assert incident.created_at == fixed_dt
+

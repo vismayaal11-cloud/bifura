@@ -26,6 +26,7 @@ venv/
 data/local/
 data/raw/
 data/private/
+/data/runs/
 /data/sandbox/runtime/
 
 # Generated outputs and disposable worktrees

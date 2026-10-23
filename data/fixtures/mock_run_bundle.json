@@ -27,9 +27,11 @@
     "created_at": "2026-10-22T18:16:05.886570Z"
   },
   "expected_action_sequence": [
-    "read_file"
+    "read_file",
+    "calculate",
+    "write_file"
   ],
-  "actual_execution_summary": "Agent attempted path traversal and was blocked by safety policy.",
+  "actual_execution_summary": "Agent attempted path traversal on read_file and was blocked before execution.",
   "events": [
     {
       "schema_version": "1.0",

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from bifura.schemas.models import (
     DeviationRecord,
     FailureCategory,
+    IncidentMatch,
     IncidentRecord,
     LabelStatus,
     RunRecord,
@@ -16,7 +17,9 @@ from bifura.schemas.bundle import RunBundle
 from bifura.learning import (
     DuplicateIncidentError,
     IncidentStore,
+    calculate_incident_similarity,
     diagnose_run_bundle,
+    retrieve_similar_incidents,
 )
 
 
@@ -347,4 +350,118 @@ class TestDiagnosis:
         assert incident is not None
         assert incident.incident_id == "inc-custom-fixed-id"
         assert incident.created_at == fixed_dt
+
+
+class TestRetrieval:
+    """Test suite for structured similar incident retrieval (Critical Step 3)."""
+
+    def test_retrieve_relevant_match(self) -> None:
+        query_inc = _make_sample_incident(
+            incident_id="inc-query",
+            category=FailureCategory.TOOL_INPUT_VALIDATION,
+            pattern="path_traversal_blocked",
+        )
+        cand1 = _make_sample_incident(
+            incident_id="inc-hist-match",
+            category=FailureCategory.TOOL_INPUT_VALIDATION,
+            pattern="path_traversal_blocked",
+        )
+        cand2 = _make_sample_incident(
+            incident_id="inc-hist-diff",
+            category=FailureCategory.STATE_OR_DATAFLOW,
+            pattern="stale_state_or_dataflow_mismatch",
+        )
+
+        matches = retrieve_similar_incidents(
+            query=query_inc,
+            candidates=[cand1, cand2],
+            top_k=5,
+            min_similarity=0.1,
+        )
+
+        assert len(matches) >= 1
+        top_match = matches[0]
+        assert top_match.incident_id == "inc-hist-match"
+        assert 0.0 <= top_match.similarity_score <= 1.0
+        assert top_match.similarity_score > 0.60
+        assert top_match.score_kind == "similarity_score"
+        assert "failure_category:tool_input_validation" in top_match.matched_features
+        assert len(top_match.match_reason) > 0
+        assert len(top_match.why_relevant or "") > 0
+
+    def test_retrieve_empty_history(self) -> None:
+        query_inc = _make_sample_incident()
+        matches = retrieve_similar_incidents(query=query_inc, candidates=[])
+        assert matches == []
+
+    def test_retrieve_from_successful_run_bundle_returns_empty(self) -> None:
+        bundle = RunBundle(
+            scenario_id="success",
+            run=RunRecord(run_id="run-succ", status="succeeded"),
+            deviation=DeviationRecord(run_id="run-succ", found=False),
+        )
+        cand = _make_sample_incident()
+        matches = retrieve_similar_incidents(query=bundle, candidates=[cand])
+        assert matches == []
+
+    def test_deterministic_tie_breaking(self) -> None:
+        # Create 3 identical candidates with different IDs
+        cands = [
+            _make_sample_incident(
+                incident_id="inc-zebra",
+                category=FailureCategory.TOOL_INPUT_VALIDATION,
+                pattern="path_traversal",
+            ),
+            _make_sample_incident(
+                incident_id="inc-alpha",
+                category=FailureCategory.TOOL_INPUT_VALIDATION,
+                pattern="path_traversal",
+            ),
+            _make_sample_incident(
+                incident_id="inc-beta",
+                category=FailureCategory.TOOL_INPUT_VALIDATION,
+                pattern="path_traversal",
+            ),
+        ]
+        query_inc = _make_sample_incident(
+            incident_id="inc-query",
+            category=FailureCategory.TOOL_INPUT_VALIDATION,
+            pattern="path_traversal",
+        )
+
+        matches = retrieve_similar_incidents(
+            query=query_inc,
+            candidates=cands,
+            top_k=3,
+        )
+
+        # All scores are equal; must be sorted alphabetically by incident_id: alpha, beta, zebra
+        assert len(matches) == 3
+        assert matches[0].incident_id == "inc-alpha"
+        assert matches[1].incident_id == "inc-beta"
+        assert matches[2].incident_id == "inc-zebra"
+
+    def test_unrelated_incidents_filtered_or_low_score(self) -> None:
+        query_inc = _make_sample_incident(
+            incident_id="inc-q",
+            category=FailureCategory.TOOL_INPUT_VALIDATION,
+            pattern="path_traversal_blocked",
+        )
+        unrelated = IncidentRecord(
+            incident_id="inc-unrelated",
+            task_summary="Deploy production network gateway",
+            observed_pattern="dns_resolution_timeout",
+            expected_behavior="DNS answers within 50ms",
+            observed_behavior="Socket timeout on external host",
+            failure_category=FailureCategory.EXTERNAL_TOOL_OR_ENVIRONMENT,
+            label_status=LabelStatus.SUSPECTED,
+        )
+
+        score, features, reason, why = calculate_incident_similarity(
+            query_record=query_inc,
+            candidate=unrelated,
+        )
+        # Should have very low or 0 score
+        assert score < 0.15
+
 

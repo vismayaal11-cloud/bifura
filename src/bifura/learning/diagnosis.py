@@ -124,7 +124,7 @@ def diagnose_run_bundle(
         or "cache" in combined_dev_text
         or "dataflow" in combined_dev_text
         or "state mismatch" in combined_dev_text
-        or (deviation.expected is not None and deviation.actual is not None)
+        or ("expression" in str(deviation.expected or {}) and "expression" in str(deviation.actual or {}))
         for _ in [1]
     ) or any(
         "stale" in (e.summary or "").lower()
@@ -208,7 +208,7 @@ def diagnose_run_bundle(
             "Agent input parameters failed boundary validation.",
         ]
 
-    elif is_sequence_violation and not is_stale_or_dataflow:
+    elif is_sequence_violation:
         diagnosed_category = FailureCategory.PLANNING_OR_TOOL_SEQUENCE
         observed_pattern = "out_of_order_tool_execution"
         root_cause_summary = (

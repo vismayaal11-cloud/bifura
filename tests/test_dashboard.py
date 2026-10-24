@@ -37,7 +37,7 @@ def test_discover_and_load_bundles_from_fixtures():
     for key, item in loaded_runs.items():
         assert isinstance(item.bundle, RunBundle)
         assert item.bundle.schema_version == "1.0"
-        assert item.source_type == "fixture"
+        assert item.source_type in ("fixture", "runtime")
 
 
 def test_loader_handles_missing_runtime_directory_gracefully():
@@ -187,3 +187,149 @@ def test_streamlit_app_smoke_test():
     run_select.select_index(1)
     at.run(timeout=15)
     assert not at.exception
+
+
+def test_timeline_and_components_render_no_literal_html_tags():
+    """Verify that event timeline and component cards do not leak literal HTML tags into markdown."""
+    app_path = Path(__file__).parent.parent / "app.py"
+    at = AppTest.from_file(str(app_path), default_timeout=15)
+    at.run(timeout=15)
+
+    assert not at.exception
+
+    # Inspect all markdown elements except the CSS <style> block
+    for md in at.markdown:
+        val = md.value
+        if "<style>" in val:
+            continue
+        # Verify no raw unparsed HTML tags are rendered inside cards
+        assert "<span style=" not in val, f"Found unparsed literal <span style=...>: {val}"
+        assert "<div class=" not in val, f"Found unparsed literal <div class=...>: {val}"
+        assert "<span class=" not in val, f"Found unparsed literal <span class=...>: {val}"
+
+
+def test_runtime_run_discovery_and_selection_including_wrong_path():
+    """Verify loader discovers runtime bundles in data/runs/ and app selectbox can select run-wrong_path-20261023191417."""
+    loaded_runs, load_errors = discover_and_load_bundles(
+        fixtures_dir="data/fixtures",
+        runs_dir="data/runs",
+    )
+
+    # Confirm run selector distinguishes fixtures and runtime bundles
+    runtime_runs = {k: v for k, v in loaded_runs.items() if v.source_type == "runtime"}
+    fixture_runs = {k: v for k, v in loaded_runs.items() if v.source_type == "fixture"}
+
+    assert len(fixture_runs) >= 4, "Must load standard fixtures"
+    assert len(runtime_runs) >= 1, "Must load generated runtime runs from data/runs"
+
+    for r in fixture_runs.values():
+        assert "[FIXTURE]" in r.display_label
+    for r in runtime_runs.values():
+        assert "[RUNTIME]" in r.display_label
+
+    # Target specific runtime run requested by user
+    target_key = next((k for k in loaded_runs if "run-wrong_path-20261023191417" in k), None)
+    assert target_key is not None, "Target runtime run run-wrong_path-20261023191417 must be discovered"
+
+    target_run = loaded_runs[target_key]
+    assert target_run.source_type == "runtime"
+    assert target_run.bundle.scenario_id == "wrong_path"
+    status_str = getattr(target_run.bundle.run.status, "value", str(target_run.bundle.run.status))
+    assert status_str == "blocked"
+    assert target_run.bundle.deviation is not None
+    assert target_run.bundle.prediction is not None
+    assert target_run.bundle.verification is not None
+
+    # Test selecting this specific runtime run inside Streamlit AppTest
+    app_path = Path(__file__).parent.parent / "app.py"
+    at = AppTest.from_file(str(app_path), default_timeout=15)
+    at.run(timeout=15)
+
+    assert not at.exception
+    run_select = at.sidebar.selectbox[0]
+
+    # Select the target runtime run
+    run_select.select(target_key)
+    at.run(timeout=15)
+
+    assert not at.exception
+    # Verify no unparsed HTML tags in the selected runtime run view
+    for md in at.markdown:
+        if "<style>" in md.value:
+            continue
+        assert "<span style=" not in md.value
+        assert "<div class=" not in md.value
+
+
+def test_source_type_filter_in_sidebar():
+    """Verify that the sidebar source filter can isolate runtime runs vs fixtures."""
+    app_path = Path(__file__).parent.parent / "app.py"
+    at = AppTest.from_file(str(app_path), default_timeout=15)
+    at.run(timeout=15)
+
+    assert not at.exception
+    assert len(at.sidebar.radio) >= 1
+
+    # Filter to Runtime Runs Only
+    at.sidebar.radio[0].set_value("Runtime Runs Only")
+    at.run(timeout=15)
+    assert not at.exception
+
+    run_select = at.sidebar.selectbox[0]
+    for opt in run_select.options:
+        assert "[RUNTIME]" in opt, f"Expected only runtime runs when filtered, got: {opt}"
+
+    # Filter to Fixtures Only
+    at.sidebar.radio[0].set_value("Fixtures Only")
+    at.run(timeout=15)
+    assert not at.exception
+
+    run_select = at.sidebar.selectbox[0]
+    for opt in run_select.options:
+        assert "[FIXTURE]" in opt, f"Expected only fixture runs when filtered, got: {opt}"
+
+
+def test_task_started_and_run_finished_no_raw_html_regression():
+    """Regression test ensuring task_started and run_finished do not leak raw HTML markup into event text."""
+    app_path = Path(__file__).parent.parent / "app.py"
+    at = AppTest.from_file(str(app_path), default_timeout=15)
+    at.run(timeout=15)
+
+    assert not at.exception
+
+    # Select the runtime wrong_path scenario if available, otherwise a scenario with task_started/run_finished
+    target_opt = next(
+        (opt for opt in at.sidebar.selectbox[0].options if "wrong_path" in opt and "[RUNTIME]" in opt),
+        next((opt for opt in at.sidebar.selectbox[0].options if "success" in opt), at.sidebar.selectbox[0].options[0]),
+    )
+    at.sidebar.selectbox[0].select(target_opt)
+    at.run(timeout=15)
+
+    assert not at.exception
+
+    # Locate markdown and caption entries for task_started and run_finished
+    task_started_entries = [m.value for m in at.markdown if "task_started" in m.value]
+    run_finished_entries = [m.value for m in at.markdown if "run_finished" in m.value]
+
+    assert len(task_started_entries) >= 1, "task_started event must be rendered in timeline"
+    assert len(run_finished_entries) >= 1, "run_finished event must be rendered in timeline"
+
+    for entry in task_started_entries + run_finished_entries:
+        assert "<span style=" not in entry, f"Found raw <span style=...> in event: {entry}"
+        assert "<div style=" not in entry, f"Found raw <div style=...> in event: {entry}"
+        assert "<span" not in entry, f"Found raw <span...> in event: {entry}"
+        assert "<div" not in entry, f"Found raw <div...> in event: {entry}"
+
+    # Verify timestamps are displayed cleanly via native captions
+    timestamp_captions = [c.value for c in at.caption if c.value.startswith("🕒")]
+    assert len(timestamp_captions) >= 2, "Timestamps for events must be rendered cleanly via native captions"
+    for ts in timestamp_captions:
+        assert "<span" not in ts
+        assert "<div" not in ts
+        assert "style=" not in ts
+
+    # Verify descriptions / summaries for task_started and run_finished do not leak HTML
+    all_captions = [c.value for c in at.caption]
+    for cap in all_captions:
+        assert "<span style=" not in cap
+        assert "<div style=" not in cap

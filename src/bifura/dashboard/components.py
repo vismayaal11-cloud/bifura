@@ -18,7 +18,6 @@ def render_header(loaded_run: LoadedRun):
     run = bundle.run
 
     status_val = getattr(run.status, "value", str(run.status)).lower()
-    status_class = f"badge-{status_val}" if status_val in {"succeeded", "blocked", "failed", "pending"} else "badge-pending"
 
     col_title, col_badges = st.columns([3, 2])
 
@@ -27,37 +26,24 @@ def render_header(loaded_run: LoadedRun):
         st.caption(f"Run ID: `{run.run_id}` | Agent: `{run.agent_name} v{run.agent_version}`")
 
     with col_badges:
-        st.markdown("<div style='text-align: right; padding-top: 8px;'>", unsafe_allow_html=True)
-
-        # Source badge (Fixture vs Runtime)
-        source_cls = "badge-fixture" if loaded_run.source_type == "fixture" else "badge-runtime"
-        source_label = "MOCK FIXTURE" if loaded_run.source_type == "fixture" else "REAL RUNTIME BUNDLE"
-        st.markdown(f"<span class='badge {source_cls}'>{source_label}</span>", unsafe_allow_html=True)
-
-        # Status badge
-        st.markdown(f"<span class='badge {status_class}'>{status_val.upper()}</span>", unsafe_allow_html=True)
-
-        # Controlled Fault Injection Badge for stale_state and wrong_sequence
+        source_label = "📦 FIXTURE" if loaded_run.source_type == "fixture" else "⚡ RUNTIME"
+        status_colors = {
+            "succeeded": ":green",
+            "blocked": ":red",
+            "failed": ":orange",
+            "pending": ":gray",
+        }
+        color = status_colors.get(status_val, ":gray")
+        st.markdown(f"### {color}[{status_val.upper()}] `{source_label}`")
         if bundle.scenario_id in {"stale_state", "wrong_sequence"} or "deterministic_fault_injection" in run.tags:
-            st.markdown(
-                "<span class='badge badge-fault-injection'>Controlled Fault Injection: Deterministic Planner (No LLM)</span>",
-                unsafe_allow_html=True,
-            )
-
-        st.markdown("</div>", unsafe_allow_html=True)
+            st.caption("Controlled Fault Injection: Deterministic Planner (No LLM)")
 
     # Summary box
-    st.markdown(
-        f"""
-        <div class="bifura-card">
-            <div class="bifura-card-header">🎯 Task Description & Outcome</div>
-            <div style="font-size: 1rem; margin-bottom: 6px;"><b>Task:</b> {run.task_text or 'No task text provided'}</div>
-            <div style="color: #94A3B8; font-size: 0.9rem;"><b>Expected:</b> {run.expected_outcome or 'Not specified'}</div>
-            <div style="color: #CBD5E1; font-size: 0.9rem; margin-top: 4px;"><b>Actual Execution Summary:</b> {bundle.actual_execution_summary or run.actual_behavior or 'No summary recorded'}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.markdown("#### 🎯 Task Description & Outcome")
+        st.markdown(f"**Task:** {run.task_text or 'No task text provided'}")
+        st.markdown(f"**Expected:** {run.expected_outcome or 'Not specified'}")
+        st.markdown(f"**Actual Execution Summary:** {bundle.actual_execution_summary or run.actual_behavior or 'No summary recorded'}")
 
 
 def render_sequence_comparison(bundle: RunBundle):
@@ -74,205 +60,184 @@ def render_sequence_comparison(bundle: RunBundle):
     col_exp, col_act = st.columns(2)
 
     with col_exp:
-        st.markdown(
-            """
-            <div class="bifura-card">
-                <div class="bifura-card-header">📋 Expected Action Sequence</div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if expected_seq:
-            step_html = " <span class='sequence-arrow'>➔</span> ".join(
-                [f"<span class='sequence-step'>{tool}</span>" for tool in expected_seq]
-            )
-            st.markdown(f"<div style='margin-top: 8px;'>{step_html}</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("#### 📋 Expected Action Sequence")
+            if expected_seq:
+                step_text = " ➔ ".join([f"`{tool}`" for tool in expected_seq])
+                st.markdown(step_text)
+            else:
+                st.info("Not available for this run")
 
     with col_act:
-        match_status = "✅ MATCH" if expected_seq == actual_seq else "⚠️ DEVIATED"
-        st.markdown(
-            f"""
-            <div class="bifura-card">
-                <div class="bifura-card-header">⚡ Actual Proposed Sequence ({match_status})</div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if actual_seq:
-            step_html = " <span class='sequence-arrow'>➔</span> ".join(
-                [f"<span class='sequence-step'>{tool}</span>" for tool in actual_seq]
-            )
-            st.markdown(f"<div style='margin-top: 8px;'>{step_html}</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div class='not-available-box'>No tool actions proposed</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            match_status = "✅ MATCH" if expected_seq == actual_seq else "⚠️ DEVIATED"
+            st.markdown(f"#### ⚡ Actual Proposed Sequence ({match_status})")
+            if actual_seq:
+                step_text = " ➔ ".join([f"`{tool}`" for tool in actual_seq])
+                st.markdown(step_text)
+            else:
+                st.info("No tool actions proposed")
 
 
 def render_event_timeline(bundle: RunBundle):
-    """Render an ordered timeline of trace events."""
+    """Render an ordered timeline of trace events using safe, native Streamlit components."""
     st.markdown("### ⏱️ Ordered Event Timeline")
     events = sorted(bundle.events, key=lambda e: e.sequence)
 
     if not events:
-        st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+        st.info("No events recorded for this run.")
         return
 
     actor_colors = {
-        "agent": "#6366F1",
-        "safety_engine": "#EC4899",
-        "tool": "#10B981",
-        "evaluator": "#F59E0B",
-        "system": "#64748B",
+        "agent": ":violet",
+        "safety_engine": ":red",
+        "tool": ":green",
+        "evaluator": ":orange",
+        "system": ":gray",
     }
 
     for ev in events:
-        actor_color = actor_colors.get(ev.actor, "#94A3B8")
-        st.markdown(
-            f"""
-            <div class="timeline-item">
-                <div class="timeline-dot" style="background: {actor_color};"></div>
-                <div style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem;">
-                    <span style="font-weight: 700; color: #E2E8F0;">#{ev.sequence} {ev.event_type}</span>
-                    <span class="mono-font" style="background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem;">{ev.event_id}</span>
-                    <span style="color: {actor_color}; font-weight: 600; font-size: 0.8rem;">[{ev.actor.upper()}]</span>
-                    {f"<span style='color: #A5B4FC; font-weight: 600;'>Tool: {ev.tool_name}</span>" if ev.tool_name else ''}
-                    <span style="color: #64748B; font-size: 0.75rem; margin-left: auto;">{ev.timestamp.strftime('%H:%M:%S.%f')[:-3]}</span>
-                </div>
-                <div style="color: #94A3B8; font-size: 0.85rem; margin-top: 4px;">{ev.summary or ''}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            col_info, col_time = st.columns([5, 1])
+            with col_info:
+                color = actor_colors.get(ev.actor.lower(), ":blue")
+                actor_badge = f"{color}[[{ev.actor.upper()}]]"
+                tool_part = f" • Tool: `{ev.tool_name}`" if ev.tool_name else ""
+                st.markdown(f"**#{ev.sequence} {ev.event_type}** `{ev.event_id}` {actor_badge}{tool_part}")
+                if ev.summary:
+                    st.caption(ev.summary)
+            with col_time:
+                st.caption(f"🕒 {ev.timestamp.strftime('%H:%M:%S.%f')[:-3]}")
 
-        with st.expander(f"Inspect Event #{ev.sequence} ({ev.event_id}) Data", expanded=False):
-            col_in, col_out = st.columns(2)
-            with col_in:
-                st.markdown("**Input Data / Arguments:**")
-                st.json(ev.input_data or {})
-            with col_out:
-                st.markdown("**Output / Error Data:**")
-                if ev.error:
-                    st.error(f"{ev.error_type or 'Error'}: {ev.error}")
-                st.json(ev.output_data or {})
+            if ev.error:
+                st.error(f"{ev.error_type or 'Error'}: {ev.error}")
+
+            with st.expander(f"Inspect Event #{ev.sequence} ({ev.event_id}) Data", expanded=False):
+                col_in, col_out = st.columns(2)
+                with col_in:
+                    st.markdown("**Input Data / Arguments:**")
+                    st.json(ev.input_data or {})
+                with col_out:
+                    st.markdown("**Output / Error Data:**")
+                    st.json(ev.output_data or {})
 
 
 def render_safety_and_tools(bundle: RunBundle):
-    """Render safety decisions and tool execution results."""
+    """Render safety decisions and tool execution results using native components."""
     st.markdown("### 🛡️ Safety Decisions & Enforcement")
 
     if not bundle.safety_decisions:
-        st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+        st.info("No safety decisions recorded for this run.")
     else:
         for dec in bundle.safety_decisions:
             dec_type = getattr(dec.decision, "value", str(dec.decision))
-            pill_class = (
-                "decision-allow"
-                if dec_type == "ALLOW"
-                else "decision-block"
-                if dec_type == "BLOCK"
-                else "decision-review"
-            )
+            with st.container(border=True):
+                col_dec, col_id = st.columns([3, 2])
+                with col_dec:
+                    if dec_type == "ALLOW":
+                        st.success(f"**ALLOW** — Policy Rule: `{dec.policy_rule}`")
+                    elif dec_type == "BLOCK":
+                        st.error(f"**BLOCK** — Policy Rule: `{dec.policy_rule}`")
+                    else:
+                        st.warning(f"**REVIEW** — Policy Rule: `{dec.policy_rule}`")
+                with col_id:
+                    st.caption(f"Decision ID: `{dec.decision_id}`")
 
-            st.markdown(
-                f"""
-                <div class="bifura-card">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                        <span class="{pill_class}">{dec_type}</span>
-                        <span class="mono-font" style="color: #94A3B8; font-size: 0.8rem;">Decision ID: {dec.decision_id}</span>
-                    </div>
-                    <div><b>Policy Rule:</b> <code>{dec.policy_rule}</code></div>
-                    <div style="margin-top: 4px;"><b>Reason:</b> {dec.reason}</div>
-                    {f"<div style='margin-top: 4px; color: #34D399;'><b>Validated Target:</b> <code>{dec.validated_target}</code></div>" if dec.validated_target else ''}
-                    <div style="margin-top: 6px; font-size: 0.8rem; color: #64748B;">
-                        Execution Status: <code>{getattr(dec.execution_status, 'value', str(dec.execution_status))}</code> | Review Status: <code>{dec.review_status}</code>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                st.markdown(f"**Reason:** {dec.reason}")
+                if dec.validated_target:
+                    st.markdown(f"**Validated Target:** `{dec.validated_target}`")
+                st.caption(
+                    f"Execution Status: `{getattr(dec.execution_status, 'value', str(dec.execution_status))}` | "
+                    f"Review Status: `{dec.review_status}`"
+                )
 
     st.markdown("### ⚙️ Tool Execution Results")
     if not bundle.execution_results:
-        st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+        st.info("No tool execution results recorded for this run.")
     else:
         for res in bundle.execution_results:
-            success_badge = "✅ SUCCESS" if res.success else "❌ FAILED" if res.success is False else "⚪ UNKNOWN"
-            st.markdown(
-                f"""
-                <div class="bifura-card">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                        <span style="font-weight: 700;">Proposal: <code>{res.proposal_id}</code></span>
-                        <span>{success_badge} (Executed: {res.executed})</span>
-                    </div>
-                    {f"<div style='color: #F87171;'><b>{res.error_type}:</b> {res.error_message}</div>" if res.error_message else ''}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if res.result_data:
-                st.json(res.result_data)
+            with st.container(border=True):
+                col_prop, col_status = st.columns([3, 2])
+                with col_prop:
+                    st.markdown(f"**Proposal:** `{res.proposal_id}`")
+                with col_status:
+                    success_badge = "✅ SUCCESS" if res.success else "❌ FAILED" if res.success is False else "⚪ UNKNOWN"
+                    st.markdown(f"**Outcome:** {success_badge} (Executed: `{res.executed}`)")
+
+                if res.error_message:
+                    st.error(f"{res.error_type or 'Execution Error'}: {res.error_message}")
+                if res.result_data:
+                    with st.expander("Result Data", expanded=False):
+                        st.json(res.result_data)
 
 
 def render_deviation_analysis(bundle: RunBundle):
-    """Render first deviation analysis, observed behaviors, and evidence."""
+    """Render first deviation analysis, observed behaviors, and evidence using native components."""
     st.markdown("### 🔍 Deviation & Invariant Analysis")
     dev = bundle.deviation
 
     if dev is None:
-        st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+        st.info("Not available for this run")
         return
 
     if not dev.found:
         st.success("✅ No deviation detected — execution conformed to expected behavior.")
         return
 
-    st.markdown(
-        f"""
-        <div class="bifura-card" style="border-left: 4px solid #F43F5E;">
-            <div class="bifura-card-header" style="color: #FB7185;">⚠️ Observed Deviation Detected</div>
-            <div style="font-size: 1.05rem; font-weight: 600; margin-bottom: 8px;">{dev.description or 'Deviation identified'}</div>
-            <div><b>First Deviation Event ID:</b> <code>{dev.first_deviation_event_id or 'N/A'}</code></div>
-            <div style="margin-top: 6px;"><b>Expected Behavior:</b> {dev.expected_behavior or 'N/A'}</div>
-            <div style="margin-top: 4px; color: #FB7185;"><b>Observed Behavior:</b> {dev.observed_behavior or 'N/A'}</div>
-            {f"<div style='margin-top: 6px; font-style: italic; color: #94A3B8;'>{dev.explanation}</div>" if dev.explanation else ''}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.error(f"⚠️ **Observed Deviation Detected**: {dev.description or 'Deviation identified'}")
+        st.markdown(f"**First Deviation Event ID:** `{dev.first_deviation_event_id or 'N/A'}`")
+        st.markdown(f"**Expected Behavior:** {dev.expected_behavior or 'N/A'}")
+        st.markdown(f"**Observed Behavior:** {dev.observed_behavior or 'N/A'}")
+        if dev.explanation:
+            st.info(f"**Explanation:** {dev.explanation}")
 
 
 def render_incident_intelligence(bundle: RunBundle):
-    """Render failure category predictions and historical incident retrieval matches."""
+    """Render failure category predictions and historical incident retrieval matches using native components."""
     st.markdown("### 🧠 Incident Memory & Prediction")
 
     pred = bundle.prediction
     matches = bundle.incident_matches
+    incidents = bundle.incident_records
 
-    if pred is None and matches is None and bundle.incident_records is None:
-        st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+    if pred is None and matches is None and incidents is None:
+        st.info("Incident intelligence not available for this run.")
         return
+
+    # Diagnosed Incident Records (Honesty Invariant Visibility)
+    if incidents:
+        st.markdown("#### 📋 Diagnosed Incident Record(s)")
+        for inc in incidents:
+            with st.container(border=True):
+                col_i1, col_i2 = st.columns([3, 2])
+                with col_i1:
+                    st.markdown(f"**Incident ID:** `{inc.incident_id}`")
+                    st.markdown(f"**Category:** `{getattr(inc.failure_category, 'value', str(inc.failure_category))}`")
+                    st.caption(f"Observed Pattern: `{inc.observed_pattern}`")
+                with col_i2:
+                    status_text = f"Status: `{inc.label_status}`"
+                    elig_text = "✅ Training Eligible" if inc.training_eligible else "❌ Training Ineligible"
+                    if inc.training_eligible:
+                        st.success(elig_text)
+                    else:
+                        st.warning(elig_text)
+                    st.caption(status_text)
+                if inc.root_cause_summary:
+                    st.info(f"**Root Cause:** {inc.root_cause_summary}")
 
     col_pred, col_matches = st.columns(2)
 
     with col_pred:
         st.markdown("#### Failure Category Prediction")
         if pred is None:
-            st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+            st.info("No prediction generated for this run.")
         else:
             meaning = pred.score_meaning
-            st.markdown(
-                f"""
-                <div class="bifura-card">
-                    <div class="bifura-card-header">Model: {pred.model_version} ({pred.prediction_mode})</div>
-                    <div><b>Predicted Categories:</b> <code>{', '.join(pred.predicted_categories)}</code></div>
-                    <div style="margin-top: 6px; font-size: 0.85rem; color: #94A3B8;">
-                        Score Type: <code>{meaning}</code>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                st.markdown(f"**Model:** `{pred.model_version}` ({pred.prediction_mode})")
+                st.markdown(f"**Predicted Categories:** `{', '.join(pred.predicted_categories)}`")
+                st.caption(f"Score Type: `{meaning}`")
 
             # Format prediction scores strictly according to score_meaning
             for cat, score in pred.scores.items():
@@ -286,22 +251,18 @@ def render_incident_intelligence(bundle: RunBundle):
     with col_matches:
         st.markdown("#### Historical Incident Matches")
         if not matches:
-            st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+            st.info("No matching historical incidents retrieved.")
         else:
             for match in matches:
-                st.markdown(
-                    f"""
-                    <div class="bifura-card">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="font-weight: 700;">Incident <code>{match.incident_id}</code></span>
-                            <span style="color: #818CF8; font-weight: 600;">Similarity: {match.similarity_score:.2f}</span>
-                        </div>
-                        <div style="margin-top: 6px; font-size: 0.9rem;">{match.match_reason}</div>
-                        {f"<div style='margin-top: 4px; font-size: 0.8rem; color: #94A3B8;'>Features: {', '.join(match.matched_features)}</div>" if match.matched_features else ''}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                with st.container(border=True):
+                    col_m1, col_m2 = st.columns([3, 2])
+                    with col_m1:
+                        st.markdown(f"**Incident:** `{match.incident_id}`")
+                    with col_m2:
+                        st.markdown(f"**Similarity:** `{match.similarity_score:.2f}`")
+                    st.write(match.match_reason)
+                    if match.matched_features:
+                        st.caption(f"Features: {', '.join(match.matched_features)}")
 
 
 def render_impact_graph(bundle: RunBundle):
@@ -310,14 +271,14 @@ def render_impact_graph(bundle: RunBundle):
     graph = bundle.impact_graph
 
     if graph is None:
-        st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+        st.info("Causal impact graph not available for this run.")
         return
 
     nodes = graph.nodes or []
     edges = graph.edges or []
 
     if not nodes and not edges:
-        st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+        st.info("Causal impact graph is empty for this run.")
         return
 
     # Build Graphviz DOT representation from supplied edges
@@ -338,7 +299,6 @@ def render_impact_graph(bundle: RunBundle):
     edge_details: list[dict[str, Any]] = []
 
     for e in edges:
-        # ImpactGraph.edges may contain either DependencyEdge objects or plain dictionaries
         if isinstance(e, DependencyEdge):
             from_id = e.from_event_id
             to_id = e.to_event_id
@@ -378,28 +338,28 @@ def render_impact_graph(bundle: RunBundle):
 
 
 def render_verification_report(bundle: RunBundle):
-    """Render correction and replay verification report when present."""
+    """Render correction and replay verification report using native components."""
     st.markdown("### 🧪 Correction & Replay Verification")
     ver = bundle.verification
 
     if ver is None:
-        st.markdown("<div class='not-available-box'>Not available for this run</div>", unsafe_allow_html=True)
+        st.info("No verification/replay report recorded for this run.")
         return
 
     status_badge = "✅ PASSED" if ver.passed else "❌ FAILED"
-    st.markdown(
-        f"""
-        <div class="bifura-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span style="font-weight: 700; font-size: 1.1rem;">Verification Status: {status_badge}</span>
-                <span class="mono-font" style="color: #94A3B8;">Tests: {ver.total - ver.failures}/{ver.total} passed</span>
-            </div>
-            <div style="font-size: 0.95rem; margin-top: 4px;">{ver.summary}</div>
-            <div style="margin-top: 8px; font-size: 0.85rem; color: #94A3B8;">
-                Replay Status: <code>{ver.replay_status}</code> | Targeted Test: <code>{ver.targeted_test_status}</code> | Regression Test: <code>{ver.regression_test_status}</code>
-            </div>
-            {f"<div style='margin-top: 6px;'><b>Command:</b> <code>{ver.command}</code></div>" if ver.command else ''}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        col_v1, col_v2 = st.columns([3, 2])
+        with col_v1:
+            if ver.passed:
+                st.success(f"**Verification Status: {status_badge}**")
+            else:
+                st.error(f"**Verification Status: {status_badge}**")
+        with col_v2:
+            st.caption(f"Tests: {ver.total - ver.failures}/{ver.total} passed")
+
+        st.write(ver.summary)
+        st.caption(
+            f"Replay Status: `{ver.replay_status}` | Targeted Test: `{ver.targeted_test_status}` | Regression Test: `{ver.regression_test_status}`"
+        )
+        if ver.command:
+            st.code(ver.command, language="bash")

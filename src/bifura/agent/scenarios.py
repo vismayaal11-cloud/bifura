@@ -17,6 +17,7 @@ from bifura.schemas.models import (
     ToolCallProposal,
     utc_now,
 )
+from bifura.tools.policy import evaluate_tool_action
 
 # Canonical expected action sequence for demo scenarios
 DEMO_EXPECTED_ACTION_SEQUENCE = ["read_file", "calculate", "write_file"]
@@ -92,6 +93,8 @@ def run_scenario(
     export_bundle: bool = True,
     output_dir: Path | str | None = None,
     run_id: str | None = None,
+    enrich: bool = False,
+    incident_store: Any | None = None,
 ) -> RunBundle:
     """Execute a complete demo scenario and produce a canonical RunBundle.
 
@@ -99,12 +102,14 @@ def run_scenario(
         scenario_id: One of 'success', 'wrong_path', 'stale_state', 'wrong_sequence'.
         context: Optional custom execution context (defaults to standard context table).
         repo_root: Optional root path for resolving sandbox directories.
-        evaluator: Optional policy evaluator callable.
+        evaluator: Optional policy evaluator callable (defaults to real evaluate_tool_action).
         clock: Injected clock for deterministic timestamps.
         id_generator: Injected ID generator for deterministic IDs.
         export_bundle: Whether to save the bundle to data/runs/{run_id}.json.
         output_dir: Optional custom directory for exported bundles.
         run_id: Optional fixed run_id.
+        enrich: Whether to enrich bundle with incident memory and failure prediction.
+        incident_store: Optional IncidentStore instance for enrichment.
 
     Returns:
         Canonical RunBundle instance.
@@ -119,7 +124,7 @@ def run_scenario(
     actual_run_id = run_id or f"run-{scenario_id}-{clock().strftime('%Y%m%d%H%M%S')}"
 
     agent = BifuraAgent(
-        evaluator=evaluator,
+        evaluator=evaluator or evaluate_tool_action,
         clock=clock,
         id_generator=id_generator,
     )
@@ -179,6 +184,23 @@ def run_scenario(
         impact_graph=impact_graph,
         verification=None,      # Null until replay/correction passes
     )
+
+    if enrich:
+        from bifura.learning.loop import enrich_run_bundle, load_incident_catalog
+        from bifura.learning.storage import IncidentStore
+
+        store = incident_store or IncidentStore()
+        root = Path(repo_root).resolve() if repo_root else Path.cwd().resolve()
+        catalog_path = root / "data" / "incidents" / "catalog.json"
+        if catalog_path.exists():
+            load_incident_catalog(catalog_path, store)
+
+        bundle = enrich_run_bundle(
+            bundle=bundle,
+            store=store,
+            clock=clock,
+            id_generator=id_generator,
+        )
 
     if export_bundle:
         export_run_bundle(bundle, output_dir=output_dir)

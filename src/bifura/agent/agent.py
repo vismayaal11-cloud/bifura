@@ -12,12 +12,13 @@ Uses a transparent deterministic planner (no LLM, no API key required).
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -38,18 +39,44 @@ from bifura.tools.local_tools import (
     read_file,
     write_file,
 )
+from bifura.tools.policy import evaluate_tool_action
 from bifura.tracing.recorder import TraceRecorder
+
+
+class PolicyEvaluator(Protocol):
+    """Callable protocol for safety policy evaluators supporting optional clock and id_generator."""
+
+    def __call__(
+        self,
+        proposal: ToolCallProposal,
+        context: dict[str, Any],
+        clock: Callable[[], datetime] | None = None,
+        id_generator: Callable[[], str] | None = None,
+    ) -> SafetyDecisionRecord:
+        ...
+
+
+EvaluatorType = PolicyEvaluator | Callable[[ToolCallProposal, dict[str, Any]], SafetyDecisionRecord]
 
 
 def default_policy_evaluator(
     proposal: ToolCallProposal,
     context: dict[str, Any],
+    clock: Callable[[], datetime] | None = None,
+    id_generator: Callable[[], str] | None = None,
 ) -> SafetyDecisionRecord:
     """Default deterministic safety policy evaluator conforming to contract rules."""
     allowed_tools = context.get("allowed_tools", ["read_file", "calculate", "write_file"])
-    dec_id = f"dec-{proposal.proposal_id}"
-    now_fn = context.get("_clock", utc_now)
-    now = now_fn()
+    if id_generator is not None:
+        raw_id = id_generator()
+        dec_id = raw_id if raw_id.startswith("dec-") else f"dec-{raw_id}"
+    else:
+        dec_id = f"dec-{proposal.proposal_id}"
+    if clock is not None:
+        now = clock()
+    else:
+        now_fn = context.get("_clock", utc_now)
+        now = now_fn()
     if proposal.tool_name not in allowed_tools:
         return SafetyDecisionRecord(
             decision_id=dec_id,
@@ -273,15 +300,41 @@ class AgentRunResult:
 class BifuraAgent:
     """Deterministic LangGraph agent for Bifura multi-step tool execution."""
 
+    evaluator: PolicyEvaluator
+
     def __init__(
         self,
-        evaluator: Callable[[ToolCallProposal, dict[str, Any]], SafetyDecisionRecord] | None = None,
+        evaluator: EvaluatorType | None = None,
         clock: Callable[[], datetime] = utc_now,
         id_generator: Callable[[], str] | None = None,
     ) -> None:
-        self.evaluator = evaluator or default_policy_evaluator
+        if evaluator is None:
+            self.evaluator = evaluate_tool_action
+        else:
+            self.evaluator = self._normalize_evaluator(evaluator)
         self.clock = clock
         self.id_generator = id_generator
+
+    @staticmethod
+    def _normalize_evaluator(evaluator: EvaluatorType) -> PolicyEvaluator:
+        """Ensure evaluator conforms to PolicyEvaluator protocol while preserving runtime behavior."""
+        try:
+            sig = inspect.signature(evaluator)
+            params = sig.parameters
+            if "clock" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+                return evaluator
+        except (ValueError, TypeError):
+            pass
+
+        def _adapted_evaluator(
+            proposal: ToolCallProposal,
+            context: dict[str, Any],
+            clock: Callable[[], datetime] | None = None,
+            id_generator: Callable[[], str] | None = None,
+        ) -> SafetyDecisionRecord:
+            return evaluator(proposal, context)
+
+        return _adapted_evaluator
 
     def _plan_actions(self, scenario_id: str) -> list[dict[str, Any]]:
         """Deterministic planner generating action steps per scenario."""
@@ -395,10 +448,19 @@ class BifuraAgent:
             )
 
             # Execute through central executor
+            eval_fn = self.evaluator
+            if self.clock is not None or self.id_generator is not None:
+                def bound_evaluator(p: ToolCallProposal, c: dict[str, Any]) -> SafetyDecisionRecord:
+                    try:
+                        return self.evaluator(p, c, clock=self.clock, id_generator=self.id_generator)
+                    except TypeError:
+                        return self.evaluator(p, c)
+                eval_fn = bound_evaluator
+
             decision, exec_result = execute_tool_action(
                 proposal=proposal,
                 context=state["context"],
-                evaluator=self.evaluator,
+                evaluator=eval_fn,
                 clock=self.clock,
                 id_generator=self.id_generator or (lambda: uuid.uuid4().hex[:8]),
             )

@@ -37,10 +37,7 @@ loaded_runs, load_errors = discover_and_load_bundles(
 
 # Sidebar setup
 st.sidebar.markdown("## 🛡️ BIFURA")
-st.sidebar.markdown(
-    "<span style='color: #94A3B8; font-size: 0.85rem;'>Incident-Informed Predictive Debugging & Safety Governance</span>",
-    unsafe_allow_html=True,
-)
+st.sidebar.caption("Incident-Informed Predictive Debugging & Safety Governance")
 st.sidebar.markdown("---")
 
 if not loaded_runs:
@@ -53,12 +50,31 @@ if load_errors:
         for err in load_errors:
             st.warning(f"**{err['file']}** ({err['error_type']}):\n{err['error_message']}")
 
+# Source filter to easily isolate runtime runs or fixtures
+source_filter = st.sidebar.radio(
+    "Filter by Source:",
+    options=["All Runs", "Runtime Runs Only", "Fixtures Only"],
+    index=0,
+)
+
+if source_filter == "Runtime Runs Only":
+    available_keys = [k for k, r in loaded_runs.items() if r.source_type == "runtime"]
+elif source_filter == "Fixtures Only":
+    available_keys = [k for k, r in loaded_runs.items() if r.source_type == "fixture"]
+else:
+    available_keys = list(loaded_runs.keys())
+
+if not available_keys:
+    st.sidebar.warning(f"No runs match '{source_filter}'. Showing all runs.")
+    available_keys = list(loaded_runs.keys())
+
 # Run Selector
 selected_key = st.sidebar.selectbox(
     "Select Run / Scenario:",
-    options=list(loaded_runs.keys()),
+    options=available_keys,
     format_func=lambda k: loaded_runs[k].display_label,
     index=0,
+    key=f"run_select_{source_filter}",
 )
 
 selected_loaded_run = loaded_runs[selected_key]
@@ -71,8 +87,8 @@ fixture_count = sum(1 for r in loaded_runs.values() if r.source_type == "fixture
 runtime_count = sum(1 for r in loaded_runs.values() if r.source_type == "runtime")
 
 col_s1, col_s2 = st.sidebar.columns(2)
-col_s1.metric("Total Runs", total_runs)
-col_s2.metric("Fixtures", fixture_count)
+col_s1.metric("Fixtures", fixture_count)
+col_s2.metric("Runtime Runs", runtime_count)
 
 st.sidebar.markdown(f"**Current File:**\n`{selected_loaded_run.file_path}`")
 st.sidebar.markdown("---")

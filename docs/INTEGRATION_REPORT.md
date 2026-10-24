@@ -2,8 +2,8 @@
 
 **Target Branch:** `integration/demo`  
 **Execution Environment:** Deterministic, Offline, Zero-External-Network  
-**Verification Status:** 126 / 126 Pytest Tests Passed | All 4 Demo Scenarios Verified  
-**Date:** October 24, 2026  
+**Verification Status:** 130 / 130 Pytest Tests Passed | All 4 Demo Scenarios Verified
+**Date:** October 24, 2026
 
 ---
 
@@ -18,7 +18,7 @@ The integration satisfies all constraints established in [`docs/INTEGRATION_CONT
 - **Strict Decision/Execution Separation:** Enforced that blocked and review decisions never reach tool execution, while allowed actions undergo strict argument and registry validation.
 - **End-to-End Four Scenario Suite:** Fully executed and verified `success`, `wrong_path`, `stale_state`, and `wrong_sequence`.
 - **Honesty Invariant Enforced:** Diagnosed failure incidents remain marked `training_eligible=False` (`suspected`) until bounded repair replay passes verification.
-- **Zero Broken Tests:** Baseline test suite expanded from 119 to 126 tests with zero regressions.
+- **Zero Broken Tests:** Baseline test suite expanded from 119 (historical pre-integration baseline) to 130 verified tests with zero regressions.
 
 ---
 
@@ -216,30 +216,31 @@ flowchart TD
 ### Pytest Full Suite Execution
 ```
 ============================= test session starts =============================
-platform win32 -- Python 3.13.1, pytest-8.3.4, pluggy-1.5.0
+platform win32 -- Python 3.13.7, pytest-9.1.1, pluggy-1.7.0
 rootdir: c:\dev\bifura-integration
 configfile: pyproject.toml
-collected 126 items
+collected 130 items
 
-tests/test_agent_workflow.py::test_agent_success_run PASSED              [ 31%]
-tests/test_agent_workflow.py::test_agent_wrong_path_blocked PASSED       [ 32%]
+tests/test_agent_workflow.py::test_agent_success_run PASSED              [ 18%]
+tests/test_agent_workflow.py::test_agent_wrong_path_blocked PASSED       [ 19%]
 tests/test_contracts.py::test_trace_event_accepts_valid_data PASSED      [ 33%]
 ...
-tests/test_integration_bundle.py::test_starter_mock_bundle_structure_and_records PASSED [ 49%]
-tests/test_integration_bundle.py::test_calculator_shared_test_cases_table PASSED [ 51%]
-tests/test_integration_demo.py::test_demo_runner_all_scenarios_integration PASSED [ 52%]
-tests/test_integration_demo.py::test_demo_runner_success_scenario PASSED [ 53%]
-tests/test_integration_demo.py::test_demo_runner_wrong_path_blocked PASSED [ 53%]
-tests/test_integration_demo.py::test_demo_runner_stale_state_deviation PASSED [ 54%]
-tests/test_integration_demo.py::test_demo_runner_wrong_sequence_distinction PASSED [ 55%]
-tests/test_integration_demo.py::test_demo_runner_honesty_rule_and_verification PASSED [ 56%]
-tests/test_integration_demo.py::test_demo_cli_execution PASSED           [ 57%]
-tests/test_learning.py::TestIncidentStore::test_honesty_rule_suspected_cannot_be_training_eligible PASSED [ 59%]
-tests/test_policy.py::test_read_file_blocks_path_traversal_and_malformed PASSED [ 81%]
+tests/test_dashboard.py::test_task_started_and_run_finished_no_raw_html_regression PASSED [ 50%]
+tests/test_integration_bundle.py::test_starter_mock_bundle_structure_and_records PASSED [ 50%]
+tests/test_integration_bundle.py::test_calculator_shared_test_cases_table PASSED [ 53%]
+tests/test_integration_demo.py::test_demo_runner_all_scenarios_integration PASSED [ 53%]
+tests/test_integration_demo.py::test_demo_runner_success_scenario PASSED [ 54%]
+tests/test_integration_demo.py::test_demo_runner_wrong_path_blocked PASSED [ 55%]
+tests/test_integration_demo.py::test_demo_runner_stale_state_deviation PASSED [ 56%]
+tests/test_integration_demo.py::test_demo_runner_wrong_sequence_distinction PASSED [ 56%]
+tests/test_integration_demo.py::test_demo_runner_honesty_rule_and_verification PASSED [ 57%]
+tests/test_integration_demo.py::test_demo_cli_execution PASSED           [ 58%]
+tests/test_learning.py::TestIncidentStore::test_honesty_rule_suspected_cannot_be_training_eligible PASSED [ 60%]
+tests/test_policy.py::test_read_file_blocks_path_traversal_and_malformed PASSED [ 82%]
 tests/test_policy.py::test_write_file_allow_inside_sandbox_with_permission PASSED [ 95%]
 tests/test_policy.py::test_determinism_and_injected_providers PASSED     [100%]
 
-============================ 126 passed in 12.39s =============================
+============================ 130 passed in 23.18s =============================
 ```
 
 ---

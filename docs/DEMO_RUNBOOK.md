@@ -3,7 +3,7 @@
 **Version:** 1.0  
 **Target Branch:** `integration/demo`  
 **Audience:** Judges, Presenters, and Developers  
-**Prerequisites:** Python 3.11+, `.venv` virtual environment  
+**Prerequisites:** Python 3.11+, `.venv` virtual environment
 
 ---
 
@@ -24,7 +24,7 @@
 All commands run **100% offline and deterministically**. No LLM API keys or external network connections are required.
 
 ### A. Run Full Test Suite
-Runs all 126 unit, contract, dashboard, policy, learning, and integration demo tests:
+Runs all 130 unit, contract, dashboard, policy, learning, and integration demo tests:
 ```bash
 # On Windows Powershell / CMD:
 .venv\Scripts\pytest -v
@@ -32,7 +32,7 @@ Runs all 126 unit, contract, dashboard, policy, learning, and integration demo t
 # Or with virtualenv active:
 pytest -v
 ```
-**Expected Outcome:** `126 passed in ~12s` with zero errors.
+**Expected Outcome:** `130 passed in ~23s` with zero errors.
 
 ### B. Run the Minimal Reproducible Demo Pipeline
 Executes all four agreed scenarios end-to-end through the real policy evaluator, central executor, and learning engine:
